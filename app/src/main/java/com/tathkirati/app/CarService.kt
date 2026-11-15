@@ -24,7 +24,7 @@ class CarService : CarAppService() {
 
     @Suppress("DEPRECATION")
     override fun onCreateSession(): Session = object : Session() {
-        override fun onCreateScreen(intent: Intent): Screen = HomeScreen(carContext)
+        override fun onCreateScreen(intent: Intent): Screen = ListScreen(carContext)
     }
 }
 
@@ -52,7 +52,7 @@ abstract class LiveScreen(c: CarContext) : Screen(c) {
     }
 }
 
-class HomeScreen(c: CarContext) : LiveScreen(c) {
+class TimedScreen(c: CarContext) : LiveScreen(c) {
     @Suppress("DEPRECATION")
     override fun onGetTemplate(): Template {
         val items = ItemList.Builder()
@@ -76,8 +76,8 @@ class HomeScreen(c: CarContext) : LiveScreen(c) {
             .build()
         return ListTemplate.Builder()
             .setSingleList(items.build())
-            .setTitle("تذكيراتي")
-            .setHeaderAction(Action.APP_ICON)
+            .setTitle("تذكيرات بالوقت")
+            .setHeaderAction(Action.BACK)
             .setActionStrip(strip)
             .build()
     }
@@ -147,6 +147,55 @@ class DetailScreen(c: CarContext, private val id: Long) : LiveScreen(c) {
                     }
                     .build()
             )
+            .build()
+    }
+}
+
+/** الشاشة الرئيسية بالسيارة: قائمة «لا تنسى» */
+class ListScreen(c: CarContext) : LiveScreen(c) {
+    init {
+        // أول ما تنفتح بالسيارة: اقرا القائمة (إذا ما انقرت قبل شوية)
+        if (Prefs.carEnabled(c)) CarWatch.announce(c)
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onGetTemplate(): Template {
+        val items = ItemList.Builder().setNoItemsMessage("ماكو شي ناقص 👌")
+        Items.pending(carContext).take(listLimit()).forEach { item ->
+            items.addItem(
+                Row.Builder()
+                    .setTitle(item.text)
+                    .addText("دوس عليه لما تشتريه")
+                    .setOnClickListener {
+                        Items.toggle(carContext, item.id)
+                        CarToast.makeText(carContext, "✓ ${item.text}", CarToast.LENGTH_SHORT).show()
+                    }
+                    .build()
+            )
+        }
+        val strip = ActionStrip.Builder()
+            .addAction(
+                Action.Builder()
+                    .setTitle("🔊 اقرأ")
+                    .setOnClickListener {
+                        val t = Items.announcement(carContext)
+                        if (t == null) CarToast.makeText(carContext, "القائمة فارغة", CarToast.LENGTH_SHORT).show()
+                        else Speaker.speak(carContext, t) {}
+                    }
+                    .build()
+            )
+            .addAction(
+                Action.Builder()
+                    .setTitle("بالوقت")
+                    .setOnClickListener { screenManager.push(TimedScreen(carContext)) }
+                    .build()
+            )
+            .build()
+        return ListTemplate.Builder()
+            .setSingleList(items.build())
+            .setTitle("لا تنسى 🛒")
+            .setHeaderAction(Action.APP_ICON)
+            .setActionStrip(strip)
             .build()
     }
 }

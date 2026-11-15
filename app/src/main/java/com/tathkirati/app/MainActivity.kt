@@ -2,165 +2,181 @@ package com.tathkirati.app
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlarmManager
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.widget.Button
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
-import java.util.Calendar
 
+/** الواجهة الجديدة: قائمة «لا تنسى» تنقرا لما تركب السيارة */
 class MainActivity : Activity() {
     private val blue = Color.parseColor("#1E5BD8")
-    private val bg = Color.parseColor("#F1F4FA")
-    private val dark = Color.parseColor("#1B2333")
-    private val grey = Color.parseColor("#6B7385")
+    private val indigo = Color.parseColor("#4338CA")
+    private val bg = Color.parseColor("#F3F5FB")
+    private val dark = Color.parseColor("#141B2D")
+    private val grey = Color.parseColor("#7A8296")
+    private val green = Color.parseColor("#16A34A")
+    private val line = Color.parseColor("#E8EBF3")
 
+    private lateinit var countText: TextView
+    private lateinit var subText: TextView
     private lateinit var listBox: LinearLayout
-    private lateinit var titleIn: EditText
-    private lateinit var dateBtn: Button
-    private lateinit var timeBtn: Button
-    private lateinit var repeatGroup: RadioGroup
-    private val pick = Calendar.getInstance().apply {
-        add(Calendar.HOUR_OF_DAY, 1); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-    }
-    private val refresh: () -> Unit = { renderList() }
+    private lateinit var input: EditText
+    private lateinit var carNameText: TextView
+    private val refresh: () -> Unit = { render() }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-    private fun card(): LinearLayout = LinearLayout(this).apply {
+    private fun rounded(color: Int, r: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(r).toFloat() }
+
+    private fun card() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(14), dp(16), dp(14))
-        background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(16).toFloat() }
-        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(12)) }
+        background = rounded(Color.WHITE, 20)
+        elevation = dp(1).toFloat()
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(14)) }
     }
 
-    private fun text(s: String, size: Float, color: Int = dark, bold: Boolean = false) = TextView(this).apply {
+    private fun tv(s: String, size: Float, color: Int = dark, bold: Boolean = false) = TextView(this).apply {
         text = s; textSize = size; setTextColor(color)
         if (bold) typeface = Typeface.DEFAULT_BOLD
     }
 
-    private fun button(s: String, filled: Boolean = true, onClick: () -> Unit) = Button(this).apply {
-        text = s; isAllCaps = false; textSize = 15f
-        setTextColor(if (filled) Color.WHITE else blue)
-        background = GradientDrawable().apply {
-            setColor(if (filled) blue else Color.parseColor("#E6EDFB")); cornerRadius = dp(12).toFloat()
-        }
+    private fun pill(s: String, fg: Int, bgc: Int, onClick: () -> Unit) = TextView(this).apply {
+        text = s; textSize = 15f; setTextColor(fg); typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setPadding(dp(16), dp(12), dp(16), dp(12))
+        background = rounded(bgc, 14)
         setOnClickListener { onClick() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = bg
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        if (Prefs.classic(this)) {
+            startActivity(Intent(this, ClassicActivity::class.java)); finish(); return
+        }
+        window.statusBarColor = blue
         Notifier.ensureChannel(this)
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        askPermissions()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dp(16), dp(20), dp(16), dp(24))
-            setBackgroundColor(bg)
+            setPadding(dp(16), dp(16), dp(16), dp(28))
         }
-        root.addView(text("🔔 تذكيراتي", 26f, dark, true))
-        root.addView(text("تطلعلك بالتلفون وبشاشة السيارة (أندرويد أوتو)", 14f, grey).apply {
-            setPadding(0, dp(2), 0, dp(16))
+
+        // ===== الرأس =====
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(22), dp(20), dp(22))
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(blue, indigo)).apply {
+                cornerRadius = dp(24).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(16)) }
+        }
+        header.addView(tv("لا تنسى 🛒", 28f, Color.WHITE, true))
+        countText = tv("", 17f, Color.WHITE, true).apply { setPadding(0, dp(10), 0, 0) }
+        subText = tv("", 14f, Color.parseColor("#DCE4FF")).apply { setPadding(0, dp(2), 0, 0) }
+        header.addView(countText)
+        header.addView(subText)
+        root.addView(header)
+
+        // ===== الإضافة =====
+        val addRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = rounded(Color.WHITE, 18)
+            elevation = dp(1).toFloat()
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(6)) }
+        }
+        input = EditText(this).apply {
+            hint = "شنو تحتاج؟ مثلًا: بصل، طماطة، خبز"
+            textSize = 16f
+            background = null
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setOnEditorActionListener { _, a, _ -> if (a == EditorInfo.IME_ACTION_DONE) { addFromInput(); true } else false }
+        }
+        addRow.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        addRow.addView(TextView(this).apply {
+            text = "+"; textSize = 26f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(blue) }
+            setOnClickListener { addFromInput() }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        root.addView(addRow)
+        root.addView(tv("تكدر تكتب أكثر من غرض بنفس الوقت وتفصلهم بفاصلة", 12.5f, grey).apply {
+            setPadding(dp(8), 0, dp(8), dp(14))
         })
 
-        // ===== إضافة تذكير =====
-        val add = card()
-        add.addView(text("تذكير جديد", 18f, dark, true))
-        titleIn = EditText(this).apply {
-            hint = "شنو تريد أذكرك؟"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            textSize = 16f
-        }
-        add.addView(titleIn)
-
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(8)) }
-        dateBtn = button("", false) { pickDate() }
-        timeBtn = button("", false) { pickTime() }
-        row.addView(dateBtn, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
-        row.addView(timeBtn, LinearLayout.LayoutParams(0, -2, 1f))
-        add.addView(row)
-        updatePickButtons()
-
-        repeatGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        listOf(0, 1, 2).forEach { r ->
-            repeatGroup.addView(RadioButton(this).apply { id = 100 + r; text = Fmt.repeatLabel(r); textSize = 15f })
-        }
-        repeatGroup.check(100)
-        add.addView(repeatGroup)
-
-        add.addView(button("حفظ التذكير") { saveNew() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        root.addView(add)
-
         // ===== القائمة =====
-        root.addView(text("التذكيرات", 18f, dark, true).apply { setPadding(dp(4), dp(4), 0, dp(8)) })
         listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(listBox)
 
-        // ===== تجربة =====
-        val test = card()
-        test.addView(text("جرّب", 18f, dark, true))
-        test.addView(text("يسوي تذكير بعد 15 ثانية — شغّل أندرويد أوتو وشوفه يطلع على الشاشة.", 14f, grey))
-        test.addView(button("جرّب تذكير بعد 15 ثانية", false) {
-            Store.put(this, Reminder(Store.newId(), "هذا تذكير تجريبي ✓", System.currentTimeMillis() + 15_000, 0))
-            Toast.makeText(this, "انتظر 15 ثانية…", Toast.LENGTH_SHORT).show()
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        root.addView(test)
-
-        // ===== إعداد أندرويد أوتو =====
-        val help = card()
-        help.addView(text("🚗 حتى يطلع بأندرويد أوتو", 18f, dark, true))
-        help.addView(
-            text(
-                "1) افتح إعدادات Android Auto وانزل لآخر شي، ودوس على «الإصدار» 10 مرات لحد ما يطلع «وضع المطور».\n" +
-                    "2) من النقاط الثلاث فوق ← إعدادات المطوّر ← فعّل «مصادر غير معروفة / Unknown sources».\n" +
-                    "3) ارجع لـ «تخصيص مشغّل التطبيقات» وأشّر على «تذكيراتي».\n" +
-                    "4) التذكيرات تطلع على شاشة السيارة كرسالة وتنقرا بالصوت، وتكدر تدوس «تم» أو «أجّل».",
-                14f, dark
-            ).apply { setLineSpacing(dp(4).toFloat(), 1f); setPadding(0, dp(6), 0, 0) }
-        )
-        if (Build.VERSION.SDK_INT >= 31 && Build.VERSION.SDK_INT < 33) {
-            val am = getSystemService(AlarmManager::class.java)
-            if (am != null && !am.canScheduleExactAlarms()) {
-                help.addView(button("اسمح بالمنبهات الدقيقة", false) {
-                    startActivity(
-                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName"))
-                    )
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-            }
+        // ===== السيارة =====
+        val car = card()
+        car.addView(tv("🚗 السيارة", 18f, dark, true).apply { setPadding(0, 0, 0, dp(6)) })
+        car.addView(switchRow("ذكرني لما أركب السيارة", "يقرا القائمة لما يتصل التلفون بالسيارة", Prefs.carEnabled(this)) {
+            Prefs.setCarEnabled(this, it); render()
+        })
+        car.addView(divider())
+        car.addView(switchRow("اقرأها بالصوت", "تطلع من سماعات السيارة", Prefs.speak(this)) { Prefs.setSpeak(this, it) })
+        car.addView(divider())
+        val nameRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(10))
+            setOnClickListener { editCarName() }
         }
-        root.addView(help)
+        val nameInfo = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        nameInfo.addView(tv("اسم بلوتوث السيارة", 16f, dark))
+        carNameText = tv("", 13f, grey)
+        nameInfo.addView(carNameText)
+        nameRow.addView(nameInfo, LinearLayout.LayoutParams(0, -2, 1f))
+        nameRow.addView(tv("تغيير", 14f, blue, true))
+        car.addView(nameRow)
+        car.addView(pill("🔊 جرّب هسه — اقرالي القائمة", blue, Color.parseColor("#E6EDFB")) {
+            if (!CarWatch.announce(this, force = true)) Toast.makeText(this, "القائمة فارغة — ضيف أغراض أول", Toast.LENGTH_SHORT).show()
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) } })
+        root.addView(car)
 
-        setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(root) })
-        Scheduler.rescheduleAll(this)
+        // ===== رجوع للواجهة القديمة =====
+        root.addView(tv("↩︎ الواجهة القديمة (تذكيرات بالوقت)", 14f, grey).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6), 0, dp(6))
+            setOnClickListener {
+                Prefs.setClassic(this@MainActivity, true)
+                startActivity(Intent(this@MainActivity, ClassicActivity::class.java))
+                finish()
+            }
+        })
+
+        setContentView(ScrollView(this).apply {
+            setBackgroundColor(bg)
+            addView(root)
+        })
     }
 
     override fun onStart() {
         super.onStart()
+        if (!::listBox.isInitialized) return
         Store.listeners += refresh
-        renderList()
+        render()
     }
 
     override fun onStop() {
@@ -168,60 +184,115 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
-    private fun updatePickButtons() {
-        dateBtn.text = "📅 " + android.text.format.DateFormat.format("d/M/yyyy", pick)
-        timeBtn.text = "🕐 " + Fmt.time(pick.timeInMillis)
+    private fun askPermissions() {
+        val need = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) need += Manifest.permission.POST_NOTIFICATIONS
+        if (Build.VERSION.SDK_INT >= 31 &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) need += Manifest.permission.BLUETOOTH_CONNECT
+        if (need.isNotEmpty()) requestPermissions(need.toTypedArray(), 1)
     }
 
-    private fun pickDate() {
-        DatePickerDialog(this, { _, y, m, d ->
-            pick.set(y, m, d); updatePickButtons()
-        }, pick.get(Calendar.YEAR), pick.get(Calendar.MONTH), pick.get(Calendar.DAY_OF_MONTH)).show()
+    private fun divider() = View(this).apply {
+        setBackgroundColor(line)
+        layoutParams = LinearLayout.LayoutParams(-1, dp(1))
     }
 
-    private fun pickTime() {
-        TimePickerDialog(this, { _, h, min ->
-            pick.set(Calendar.HOUR_OF_DAY, h); pick.set(Calendar.MINUTE, min); pick.set(Calendar.SECOND, 0)
-            updatePickButtons()
-        }, pick.get(Calendar.HOUR_OF_DAY), pick.get(Calendar.MINUTE), false).show()
-    }
-
-    private fun saveNew() {
-        val title = titleIn.text.toString().trim()
-        if (title.isEmpty()) {
-            titleIn.error = "اكتب شي"; return
+    private fun switchRow(title: String, sub: String, on: Boolean, change: (Boolean) -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(10))
         }
-        val repeat = repeatGroup.checkedRadioButtonId - 100
-        var r = Reminder(Store.newId(), title, pick.timeInMillis, repeat.coerceIn(0, 2))
-        if (r.time <= System.currentTimeMillis()) {
-            if (r.repeat == 0) {
-                Toast.makeText(this, "الوقت فات — اختار وقت جاي", Toast.LENGTH_LONG).show(); return
+        val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        info.addView(tv(title, 16f, dark))
+        info.addView(tv(sub, 13f, grey))
+        row.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(Switch(this).apply {
+            isChecked = on
+            setOnCheckedChangeListener { _, v -> change(v) }
+        })
+        return row
+    }
+
+    private fun addFromInput() {
+        val n = Items.add(this, input.text.toString())
+        if (n > 0) input.setText("")
+    }
+
+    private fun editCarName() {
+        val e = EditText(this).apply { setText(Prefs.carName(this@MainActivity)); setSelection(text.length) }
+        val box = FrameLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
+        AlertDialog.Builder(this)
+            .setTitle("اسم بلوتوث السيارة")
+            .setMessage("يكفي جزء من الاسم، مثل Kia")
+            .setView(box)
+            .setPositiveButton("حفظ") { _, _ ->
+                Prefs.setCarName(this, e.text.toString().trim().ifEmpty { "Kia" }); render()
             }
-            r = r.copy(time = Scheduler.next(r))
-        }
-        Store.put(this, r)
-        titleIn.setText("")
-        Toast.makeText(this, "انحفظ ✓ ${Fmt.whenText(r)}", Toast.LENGTH_LONG).show()
+            .setNegativeButton("إلغاء", null)
+            .show()
     }
 
-    private fun renderList() {
-        if (!::listBox.isInitialized) return
+    private fun render() {
+        val all = Items.all(this)
+        val pending = all.filter { !it.done }
+        val done = all.filter { it.done }
+
+        countText.text = if (pending.isEmpty()) "ماكو شي ناقص 👌" else "عندك ${pending.size} ${if (pending.size == 1) "غرض" else "أغراض"} لا تنساها"
+        subText.text = if (Prefs.carEnabled(this)) "راح أقرالك ياها لما تركب الـ ${Prefs.carName(this)} 🚗" else "التذكير بالسيارة مطفي"
+        carNameText.text = Prefs.carName(this)
+
         listBox.removeAllViews()
-        val all = Store.all(this)
         if (all.isEmpty()) {
-            listBox.addView(card().apply { addView(text("ماكو تذكيرات بعد", 15f, grey)) })
+            listBox.addView(card().apply {
+                gravity = Gravity.CENTER
+                addView(tv("📝", 34f).apply { gravity = Gravity.CENTER })
+                addView(tv("القائمة فارغة", 16f, dark, true).apply { gravity = Gravity.CENTER })
+                addView(tv("اكتب الأغراض الي تحتاجها فوق", 14f, grey).apply { gravity = Gravity.CENTER })
+            })
             return
         }
-        all.forEach { r ->
-            val c = card()
-            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            info.addView(text(r.title, 17f, dark, true))
-            info.addView(text(Fmt.whenText(r), 14f, grey))
-            line.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
-            line.addView(button("حذف", false) { Store.remove(this, r.id); Notifier.cancel(this, r.id) })
-            c.addView(line)
-            listBox.addView(c)
+
+        val c = card().apply { setPadding(dp(6), dp(4), dp(6), dp(4)) }
+        (pending + done).forEachIndexed { idx, item ->
+            if (idx > 0) c.addView(divider())
+            c.addView(itemRow(item))
         }
+        listBox.addView(c)
+
+        if (done.isNotEmpty()) {
+            listBox.addView(pill("🧹 امسح الي اشتريتها (${done.size})", grey, Color.parseColor("#E9ECF3")) {
+                Items.clearDone(this)
+            }.apply { layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) } })
+        }
+    }
+
+    private fun itemRow(item: Item): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(12), dp(10), dp(12))
+            setOnClickListener { Items.toggle(this@MainActivity, item.id) }
+        }
+        val check = TextView(this).apply {
+            text = if (item.done) "✓" else ""
+            textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                if (item.done) setColor(green) else { setColor(Color.WHITE); setStroke(dp(2), Color.parseColor("#C5CBD8")) }
+            }
+        }
+        row.addView(check, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(14) })
+        val t = tv(item.text, 17f, if (item.done) grey else dark).apply {
+            if (item.done) paintFlags = paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+        }
+        row.addView(t, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(tv("✕", 16f, Color.parseColor("#B4BAC8")).apply {
+            setPadding(dp(10), dp(4), dp(4), dp(4))
+            setOnClickListener { Items.remove(this@MainActivity, item.id) }
+        })
+        return row
     }
 }
