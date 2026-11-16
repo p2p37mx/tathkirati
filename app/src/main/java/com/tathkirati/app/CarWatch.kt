@@ -184,7 +184,7 @@ class CarCheckReceiver : BroadcastReceiver() {
         val attempt = i.getIntExtra("attempt", 1)
         when (CarWatch.carState(c)) {
             0 -> {
-                if (attempt < 6) CarWatch.scheduleCheck(c, attempt + 1, 15_000)
+                if (attempt < 12) CarWatch.scheduleCheck(c, attempt + 1, 15_000)
                 else if (attempt < 100) CarWatch.announce(c) // البلوتوث متصل بالكيا، نقرا حتى لو أوتو ما اشتغل
             }
             2 -> {
