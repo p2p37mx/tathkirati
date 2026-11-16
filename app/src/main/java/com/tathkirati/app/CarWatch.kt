@@ -74,20 +74,24 @@ object CarWatch {
 
     /** يقرا القائمة (إشعار + صوت). force = تجاهل حد الربع ساعة */
     fun announce(c: Context, force: Boolean = false): Boolean {
-        val text = Items.announcement(c) ?: return false
+        val text = Items.announcement(c)
+        val dua = Prefs.duaEnabled(c) && Prefs.duaUri(c) != null
+        if (text == null && !dua) return false
         // الرسالة تنرسل كل مرة تتصل بالسيارة (حتى تطلع بشاشة أوتو)، بس الصوت مرة كل ربع ساعة
-        NotificationManagerCompat.from(c).cancel(NOTIF_ID)
-        showNotification(c, text)
+        if (text != null) {
+            NotificationManagerCompat.from(c).cancel(NOTIF_ID)
+            showNotification(c, text)
+        }
         val now = System.currentTimeMillis()
         if (!force && now - Prefs.lastAnnounce(c) < THROTTLE) return true
+        val say = if (Prefs.speak(c)) text else null
+        if (say == null && !dua) return true
         Prefs.setLastAnnounce(c, now)
-        if (Prefs.speak(c)) {
-            try {
-                if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(Intent(c, AnnounceService::class.java).putExtra("text", text))
-                else c.startService(Intent(c, AnnounceService::class.java).putExtra("text", text))
-            } catch (_: Exception) {
-                Speaker.speak(c, text) {}
-            }
+        val i = Intent(c, AnnounceService::class.java).putExtra("text", say).putExtra("dua", dua)
+        try {
+            if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
+        } catch (_: Exception) {
+            if (say != null) Speaker.speak(c, say) {}
         }
         return true
     }
@@ -256,13 +260,69 @@ class AnnounceService : Service() {
         }
         val n: Notification = NotificationCompat.Builder(this, ch)
             .setSmallIcon(R.drawable.ic_notif)
-            .setContentTitle("🔊 دا أقرالك القائمة…")
+            .setContentTitle("🔊 دعاء الركوب والقائمة…")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
         startForeground(778, n)
         val text = intent?.getStringExtra("text")
-        if (text.isNullOrBlank()) stopSelf()
-        else Speaker.speak(this, text) { stopSelf() }
+        val dua = intent?.getBooleanExtra("dua", false) == true
+        val afterDua = {
+            if (text.isNullOrBlank()) stopSelf()
+            else Speaker.speak(this, text) { stopSelf() }
+        }
+        if (dua) DuaPlayer.play(this) { afterDua() } else afterDua()
         return START_NOT_STICKY
+    }
+}
+
+/** يشغّل ملف دعاء الركوب الي اختاره المستخدم، وبعد ما يخلص ينادي onDone */
+object DuaPlayer {
+    private var player: android.media.MediaPlayer? = null
+
+    fun stop() {
+        try { player?.release() } catch (_: Exception) {}
+        player = null
+    }
+
+    fun play(c: Context, onDone: () -> Unit) {
+        val uri = Prefs.duaUri(c)?.let { Uri.parse(it) }
+        if (uri == null) { onDone(); return }
+        val main = Handler(Looper.getMainLooper())
+        val am = c.getSystemService(AudioManager::class.java)
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+        // يوقف الأغاني مؤقتًا لحد ما يخلص الدعاء
+        val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(attrs).build()
+        var finished = false
+        val finish = {
+            main.post {
+                if (!finished) {
+                    finished = true
+                    stop()
+                    try { am?.abandonAudioFocusRequest(focus) } catch (_: Exception) {}
+                    onDone()
+                }
+            }
+        }
+        stop()
+        try {
+            val mp = android.media.MediaPlayer()
+            player = mp
+            mp.setAudioAttributes(attrs)
+            mp.setDataSource(c.applicationContext, uri)
+            mp.setOnPreparedListener {
+                try { am?.requestAudioFocus(focus) } catch (_: Exception) {}
+                it.start()
+            }
+            mp.setOnCompletionListener { finish() }
+            mp.setOnErrorListener { _, _, _ -> finish(); true }
+            mp.prepareAsync()
+        } catch (_: Exception) {
+            finish()
+        }
+        main.postDelayed({ finish() }, 10 * 60_000L) // أمان: أقصى شي 10 دقايق
     }
 }

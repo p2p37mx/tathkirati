@@ -11,6 +11,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -38,6 +40,8 @@ class MainActivity : Activity() {
     private lateinit var listBox: LinearLayout
     private lateinit var input: EditText
     private lateinit var carNameText: TextView
+    private lateinit var duaText: TextView
+    private val PICK_DUA = 42
     private val refresh: () -> Unit = { render() }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -151,9 +155,37 @@ class MainActivity : Activity() {
         nameRow.addView(tv("تغيير", 14f, blue, true))
         car.addView(nameRow)
         car.addView(pill("🔊 جرّب هسه — اقرالي القائمة", blue, Color.parseColor("#E6EDFB")) {
-            if (!CarWatch.announce(this, force = true)) Toast.makeText(this, "القائمة فارغة — ضيف أغراض أول", Toast.LENGTH_SHORT).show()
+            if (!CarWatch.announce(this, force = true)) Toast.makeText(this, "القائمة فارغة وماكو دعاء — ضيف أغراض أو اختار ملف الدعاء", Toast.LENGTH_SHORT).show()
         }.apply { layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) } })
         root.addView(car)
+
+        // ===== دعاء الركوب =====
+        val duaCard = card()
+        duaCard.addView(tv("🤲 دعاء الركوب", 18f, dark, true).apply { setPadding(0, 0, 0, dp(6)) })
+        duaCard.addView(switchRow("شغّل الدعاء لما أركب", "يشتغل الدعاء أول، وبعده يقرالك القائمة", Prefs.duaEnabled(this)) {
+            Prefs.setDuaEnabled(this, it)
+        })
+        duaCard.addView(divider())
+        val duaRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(10))
+            setOnClickListener { pickDua() }
+        }
+        val duaInfo = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        duaInfo.addView(tv("ملف الصوت", 16f, dark))
+        duaText = tv("", 13f, grey)
+        duaInfo.addView(duaText)
+        duaRow.addView(duaInfo, LinearLayout.LayoutParams(0, -2, 1f))
+        duaRow.addView(tv("اختيار", 14f, blue, true))
+        duaCard.addView(duaRow)
+        val duaBtns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, 0) }
+        duaBtns.addView(pill("▶ جرّب الدعاء", blue, Color.parseColor("#E6EDFB")) {
+            if (Prefs.duaUri(this) == null) pickDua() else DuaPlayer.play(this) {}
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
+        duaBtns.addView(pill("⏹ إيقاف", grey, Color.parseColor("#E9ECF3")) { DuaPlayer.stop() },
+            LinearLayout.LayoutParams(0, -2, 1f))
+        duaCard.addView(duaBtns)
+        root.addView(duaCard)
 
         // ===== رجوع للواجهة القديمة =====
         root.addView(tv("↩︎ الواجهة القديمة (تذكيرات بالوقت)", 14f, grey).apply {
@@ -216,6 +248,41 @@ class MainActivity : Activity() {
         return row
     }
 
+    private fun pickDua() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/*"))
+        }
+        try {
+            startActivityForResult(i, PICK_DUA)
+        } catch (_: Exception) {
+            Toast.makeText(this, "ما كدرت أفتح الملفات", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != PICK_DUA || resultCode != RESULT_OK) return
+        val uri: Uri = data?.data ?: return
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+        }
+        var name = "دعاء الركوب"
+        try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                if (it.moveToFirst()) name = it.getString(0) ?: name
+            }
+        } catch (_: Exception) {
+        }
+        Prefs.setDua(this, uri.toString(), name)
+        Prefs.setDuaEnabled(this, true)
+        Toast.makeText(this, "انحفظ ✓ $name", Toast.LENGTH_SHORT).show()
+        render()
+    }
+
     private fun addFromInput() {
         val n = Items.add(this, input.text.toString())
         if (n > 0) input.setText("")
@@ -243,6 +310,7 @@ class MainActivity : Activity() {
         countText.text = if (pending.isEmpty()) "ماكو شي ناقص 👌" else "عندك ${pending.size} ${if (pending.size == 1) "غرض" else "أغراض"} لا تنساها"
         subText.text = if (Prefs.carEnabled(this)) "راح أقرالك ياها لما تركب الـ ${Prefs.carName(this)} 🚗" else "التذكير بالسيارة مطفي"
         carNameText.text = Prefs.carName(this)
+        duaText.text = Prefs.duaName(this) ?: "ما مختار ملف بعد — دوس حتى تختار"
 
         listBox.removeAllViews()
         if (all.isEmpty()) {

@@ -56,7 +56,7 @@ object Items {
         val p = pending(c).map { it.text }
         if (p.isEmpty()) return null
         val list = if (p.size == 1) p[0] else p.dropLast(1).joinToString("، ") + "، و" + p.last()
-        return "لا تنسى، عندك: $list."
+        return "لا تنسى اليوم، عندك: $list."
     }
 }
 
@@ -76,6 +76,14 @@ object Prefs {
     /** الواجهة القديمة (الكلاسيكية) */
     fun classic(c: Context) = sp(c).getBoolean("classic", false)
     fun setClassic(c: Context, v: Boolean) = sp(c).edit().putBoolean("classic", v).apply()
+
+    /** دعاء الركوب */
+    fun duaEnabled(c: Context) = sp(c).getBoolean("dua_enabled", true)
+    fun setDuaEnabled(c: Context, v: Boolean) = sp(c).edit().putBoolean("dua_enabled", v).apply()
+    fun duaUri(c: Context): String? = sp(c).getString("dua_uri", null)
+    fun duaName(c: Context): String? = sp(c).getString("dua_name", null)
+    fun setDua(c: Context, uri: String?, name: String?) =
+        sp(c).edit().putString("dua_uri", uri).putString("dua_name", name).apply()
 
     fun lastAnnounce(c: Context) = sp(c).getLong("last_announce", 0L)
     fun setLastAnnounce(c: Context, v: Long) = sp(c).edit().putLong("last_announce", v).apply()
