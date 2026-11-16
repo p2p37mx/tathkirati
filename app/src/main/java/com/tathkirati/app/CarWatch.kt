@@ -75,10 +75,12 @@ object CarWatch {
     /** يقرا القائمة (إشعار + صوت). force = تجاهل حد الربع ساعة */
     fun announce(c: Context, force: Boolean = false): Boolean {
         val text = Items.announcement(c) ?: return false
-        val now = System.currentTimeMillis()
-        if (!force && now - Prefs.lastAnnounce(c) < THROTTLE) return false
-        Prefs.setLastAnnounce(c, now)
+        // الرسالة تنرسل كل مرة تتصل بالسيارة (حتى تطلع بشاشة أوتو)، بس الصوت مرة كل ربع ساعة
+        NotificationManagerCompat.from(c).cancel(NOTIF_ID)
         showNotification(c, text)
+        val now = System.currentTimeMillis()
+        if (!force && now - Prefs.lastAnnounce(c) < THROTTLE) return true
+        Prefs.setLastAnnounce(c, now)
         if (Prefs.speak(c)) {
             try {
                 if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(Intent(c, AnnounceService::class.java).putExtra("text", text))
@@ -96,7 +98,7 @@ object CarWatch {
         val me = Person.Builder().setName("أنا").build()
         val sender = Person.Builder().setName("لا تنسى").setKey("tathkirati-list").build()
         val style = NotificationCompat.MessagingStyle(me)
-            .setConversationTitle("لا تنسى 🛒")
+            .setGroupConversation(false)
             .addMessage(text, System.currentTimeMillis(), sender)
         // أزرار حتى أندرويد أوتو يعرضها بشاشة الرسائل: «تم» + رد صوتي يضيف غرض للقائمة
         fun pi(act: String, mutable: Boolean): PendingIntent {
@@ -183,7 +185,12 @@ class CarCheckReceiver : BroadcastReceiver() {
         when (CarWatch.carState(c)) {
             0 -> {
                 if (attempt < 6) CarWatch.scheduleCheck(c, attempt + 1, 15_000)
-                else CarWatch.announce(c) // البلوتوث متصل بالكيا، نقرا حتى لو أوتو ما اشتغل
+                else if (attempt < 100) CarWatch.announce(c) // البلوتوث متصل بالكيا، نقرا حتى لو أوتو ما اشتغل
+            }
+            2 -> {
+                CarWatch.announce(c)
+                // مرة ثانية بعد دقيقة حتى إذا شاشة الرسائل ما كانت جاهزة
+                if (attempt < 100) CarWatch.scheduleCheck(c, 100, 60_000)
             }
             else -> CarWatch.announce(c)
         }
