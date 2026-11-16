@@ -90,7 +90,7 @@ object CarWatch {
         return true
     }
 
-    private fun showNotification(c: Context, text: String) {
+    fun showNotification(c: Context, text: String, quiet: Boolean = false) {
         Notifier.ensureChannel(c)
         val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val me = Person.Builder().setName("أنا").build()
@@ -98,6 +98,23 @@ object CarWatch {
         val style = NotificationCompat.MessagingStyle(me)
             .setConversationTitle("لا تنسى 🛒")
             .addMessage(text, System.currentTimeMillis(), sender)
+        // أزرار حتى أندرويد أوتو يعرضها بشاشة الرسائل: «تم» + رد صوتي يضيف غرض للقائمة
+        fun pi(act: String, mutable: Boolean): PendingIntent {
+            val flag = if (!mutable) PendingIntent.FLAG_IMMUTABLE else if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            return PendingIntent.getBroadcast(
+                c, 0, Intent(c, ListActionReceiver::class.java).setAction(act),
+                PendingIntent.FLAG_UPDATE_CURRENT or flag
+            )
+        }
+        val readAction = NotificationCompat.Action.Builder(R.drawable.ic_check, "تم", pi(ListActionReceiver.READ, false))
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
+            .setShowsUserInterface(false)
+            .build()
+        val replyAction = NotificationCompat.Action.Builder(R.drawable.ic_notif, "ضيف غرض", pi(ListActionReceiver.REPLY, true))
+            .addRemoteInput(androidx.core.app.RemoteInput.Builder("reply").setLabel("شنو تريد تضيف؟").build())
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+            .setShowsUserInterface(false)
+            .build()
         val car = CarAppExtender.Builder()
             .setContentTitle("لا تنسى 🛒")
             .setContentText(text)
@@ -113,11 +130,34 @@ object CarWatch {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(open)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(quiet)
+            .addAction(replyAction)
+            .addInvisibleAction(readAction)
             .extend(car)
             .build()
         try {
             NotificationManagerCompat.from(c).notify(NOTIF_ID, n)
         } catch (_: SecurityException) {
+        }
+    }
+}
+
+/** أزرار إشعار القائمة: «تم» يخفيه، والرد (حتى بالصوت من السيارة) يضيف أغراض */
+class ListActionReceiver : BroadcastReceiver() {
+    companion object {
+        const val READ = "list_read"
+        const val REPLY = "list_reply"
+    }
+
+    override fun onReceive(c: Context, i: Intent) {
+        when (i.action) {
+            READ -> NotificationManagerCompat.from(c).cancel(777)
+            REPLY -> {
+                val said = androidx.core.app.RemoteInput.getResultsFromIntent(i)?.getCharSequence("reply")?.toString().orEmpty()
+                val n = Items.add(c, said)
+                val list = Items.announcement(c) ?: "القائمة فارغة"
+                CarWatch.showNotification(c, if (n > 0) "انضاف ✓ $said\n$list" else list, quiet = true)
+            }
         }
     }
 }

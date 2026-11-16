@@ -63,6 +63,10 @@
         </receiver>
 
         <receiver
+            android:name=".ListActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".CarCheckReceiver"
             android:exported="false" />
 
@@ -76,7 +80,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.POI" />
+                <category android:name="androidx.car.app.category.IOT" />
             </intent-filter>
         </service>
 
